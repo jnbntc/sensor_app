@@ -16,23 +16,6 @@ source /home/juan/sensor_env/bin/activate
 # Instalar las bibliotecas de Python necesarias
 pip install Adafruit_DHT Flask gunicorn RPi.GPIO flask-cors
 
-# Configurar el servicio systemd
-sudo tee /etc/systemd/system/sensor_app.service > /dev/null <<EOT
-[Unit]
-Description=Sensor Application
-After=network.target
-
-[Service]
-ExecStart=/home/juan/sensor_env/bin/gunicorn --workers 1 --bind unix:$BASE_DIR/sensor_app.sock -m 007 app:app
-WorkingDirectory=$BASE_DIR
-User=juan
-Group=www-data
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOT
-
 # Permisos para el socket
 sudo chmod 755 $BASE_DIR
 sudo chown juan:www-data $BASE_DIR
@@ -41,19 +24,6 @@ sudo chown juan:www-data $BASE_DIR
 sudo systemctl daemon-reload
 sudo systemctl start sensor_app
 sudo systemctl enable sensor_app
-
-# Configurar Nginx
-sudo tee /etc/nginx/sites-available/sensor_app > /dev/null <<EOT
-server {
-    listen 80 default_server;
-    server_name _;
-
-    location / {
-        include proxy_params;
-        proxy_pass http://unix:$BASE_DIR/sensor_app.sock;
-    }
-}
-EOT
 
 # Eliminar el enlace simbólico predeterminado si existe
 sudo rm -f /etc/nginx/sites-enabled/default
