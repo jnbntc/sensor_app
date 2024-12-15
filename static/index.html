@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Temperatura y Humedad</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.0/dist/chartjs-adapter-moment.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .current-readings {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+        }
+        .reading {
+            text-align: center;
+            padding: 10px;
+            background-color: #e9e9e9;
+            border-radius: 4px;
+        }
+        .chart-container {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        .chart-wrapper {
+            width: 48%;
+        }
+        canvas {
+            width: 100% !important;
+            height: 300px !important;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        .relay-controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .relay-btn {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            min-width: 120px;
+        }
+        .relay-btn.on {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .relay-btn.off {
+            background-color: #f44336;
+            color: white;
+        }
+        .error-message {
+            color: red;
+            text-align: center;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Monitor de Temperatura y Humedad</h1>
+        <div id="errorMessage" class="error-message"></div>
+        <div class="current-readings">
+            <div class="reading">
+                <h2>Temperatura</h2>
+                <p id="temperature">-</p>
+            </div>
+            <div class="reading">
+                <h2>Humedad</h2>
+                <p id="humidity">-</p>
+            </div>
+        </div>
+        <div class="controls">
+            <button onclick="updateCharts('1h')">Última hora</button>
+            <button onclick="updateCharts('24h')">Últimas 24 horas</button>
+            <button onclick="updateCharts('7d')">Última semana</button>
+            <button onclick="updateCharts('30d')">Último mes</button>
+        </div>
+        <div class="relay-controls">
+            <button id="relay1Btn" class="relay-btn off" onclick="toggleRelay(1)">Relay 1 OFF</button>
+            <button id="relay2Btn" class="relay-btn off" onclick="toggleRelay(2)">Relay 2 OFF</button>
+        </div>
+        <div class="chart-container">
+            <div class="chart-wrapper">
+                <canvas id="temperatureChart"></canvas>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="humidityChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const temperatureElement = document.getElementById('temperature');
+        const humidityElement = document.getElementById('humidity');
+        const errorMessageElement = document.getElementById('errorMessage');
+        const temperatureCtx = document.getElementById('temperatureChart').getContext('2d');
+        const humidityCtx = document.getElementById('humidityChart').getContext('2d');
+        let temperatureChart, humidityChart;
+
+        // Configura axios para manejar errores
+        axios.interceptors.response.use(
+            response => response,
+            error => {
+                // Maneja errores de red o de servidor
+                let errorMessage = 'Error desconocido';
+                if (error.response) {
+                    // El servidor respondió con un error
+                    errorMessage = `Error ${error.response.status}: ${error.response.data.message || 'Error del servidor'}`;
+                } else if (error.request) {
+                    // No se recibió respuesta
+                    errorMessage = 'No se pudo conectar con el servidor. Verifique la conexión.';
+                } else {
+                    // Error al configurar la solicitud
+                    errorMessage = 'Error al procesar la solicitud';
+                }
+                
+                // Muestra el mensaje de error
+                errorMessageElement.textContent = errorMessage;
+                console.error('Error details:', error);
+                
+                // Lanza el error para que pueda ser manejado posteriormente si es necesario
+                return Promise.reject(error);
+            }
+        );
+
+        function updateCurrentReadings() {
+            axios.get('/api/current')
+                .then(response => {
+                    const data = response.data;
+                    temperatureElement.textContent = `${data.temperature.toFixed(1)}°C`;
+                    humidityElement.textContent = `${data.humidity.toFixed(1)}%`;
+                    errorMessageElement.textContent = ''; // Limpia cualquier mensaje de error previo
+                })
+                .catch(error => {
+                    temperatureElement.textContent = '-';
+                    humidityElement.textContent = '-';
+                });
+        }
+
+        function toggleRelay(relayNumber) {
+            const relayBtn = document.getElementById(`relay${relayNumber}Btn`);
+            const currentState = relayBtn.classList.contains('on');
+            const newState = !currentState;
+
+            axios.post('/api/relay/control', { 
+                relay: relayNumber, 
+                state: newState 
+            })
+            .then(response => {
+                // Actualiza el estado visual del botón
+                updateRelayButtonState(relayNumber, newState);
+                errorMessageElement.textContent = ''; // Limpia cualquier mensaje de error previo
+            })
+            .catch(error => {
+                // El error ya se maneja en el interceptor
+            });
+        }
+
+        function updateRelayButtonState(relayNumber, state) {
+            const relayBtn = document.getElementById(`relay${relayNumber}Btn`);
+            
+            if (state) {
+                relayBtn.classList.remove('off');
+                relayBtn.classList.add('on');
+                relayBtn.textContent = `Relay ${relayNumber} ON`;
+            } else {
+                relayBtn.classList.remove('on');
+                relayBtn.classList.add('off');
+                relayBtn.textContent = `Relay ${relayNumber} OFF`;
+            }
+        }
+
+        function createChart(ctx, label, color) {
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: label,
+                        borderColor: color,
+                        tension: 0.1,
+                        data: []
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'hour'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateCharts(timeRange) {
+            const now = new Date();
+            let startTime;
+            switch(timeRange) {
+                case '1h':
+                    startTime = new Date(now - 60 * 60 * 1000);
+                    break;
+                case '24h':
+                    startTime = new Date(now - 24 * 60 * 60 * 1000);
+                    break;
+                case '7d':
+                    startTime = new Date(now - 7 * 24 * 60 * 60 * 1000);
+                    break;
+                case '30d':
+                    startTime = new Date(now - 30 * 24 * 60 * 60 * 1000);
+                    break;
+            }
+
+            axios.get('/api/history')
+                .then(response => {
+                    const data = response.data;
+                    const filteredData = data.filter(reading => new Date(reading.timestamp) > startTime);
+                    
+                    const temperatures = filteredData.map(reading => ({
+                        x: new Date(reading.timestamp),
+                        y: reading.temperature
+                    }));
+                    const humidities = filteredData.map(reading => ({
+                        x: new Date(reading.timestamp),
+                        y: reading.humidity
+                    }));
+
+                    temperatureChart.data.datasets[0].data = temperatures;
+                    humidityChart.data.datasets[0].data = humidities;
+
+                    temperatureChart.update();
+                    humidityChart.update();
+                    errorMessageElement.textContent = ''; // Limpia cualquier mensaje de error previo
+                })
+                .catch(error => {
+                    // El error ya se maneja en el interceptor
+                });
+        }
+
+        // Recupera el estado inicial de los relés
+        function updateRelayStatus() {
+            axios.get('/api/relay/status')
+                .then(response => {
+                    const relay1Status = response.data.relay1 === 'ON';
+                    const relay2Status = response.data.relay2 === 'ON';
+                    
+                    updateRelayButtonState(1, relay1Status);
+                    updateRelayButtonState(2, relay2Status);
+                    errorMessageElement.textContent = ''; // Limpia cualquier mensaje de error previo
+                })
+                .catch(error => {
+                    // El error ya se maneja en el interceptor
+                });
+        }
+
+        temperatureChart = createChart(temperatureCtx, 'Temperatura (°C)', 'rgb(255, 99, 132)');
+        humidityChart = createChart(humidityCtx, 'Humedad (%)', 'rgb(54, 162, 235)');
+
+        updateCurrentReadings();
+        updateCharts('24h');  // Muestra las últimas 24 horas por defecto
+        updateRelayStatus();  // Recupera el estado inicial de los relés
+
+        // Actualización periódica
+        setInterval(updateCurrentReadings, 60000);
+        setInterval(() => updateCharts('24h'), 300000);
+        setInterval(updateRelayStatus, 60000);  // Actualiza el estado de los relés cada minuto
+    </script>
+</body>
+</html>

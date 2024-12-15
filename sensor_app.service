@@ -1,0 +1,13 @@
+[Unit]
+Description=Sensor Application
+After=network.target
+
+[Service]
+ExecStart=/home/juan/sensor_env/bin/gunicorn --workers 1 --bind unix:$BASE_DIR/sensor_app.sock -m 007 app:app
+WorkingDirectory=/home/juan/sensor_app
+User=juan
+Group=www-data
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
